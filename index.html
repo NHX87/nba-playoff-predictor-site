@@ -26,6 +26,7 @@
         <nav class="nav-links">
           <a href="#overview">Overview</a>
           <a href="#anatomy">Anatomy</a>
+          <a href="#models">Models</a>
           <a href="#outputs">Outputs</a>
           <a href="https://huggingface.co/spaces/NHX87/nba-playoff-predictor" target="_blank" rel="noreferrer">Live App ↗</a>
           <a href="https://github.com/NHX87/nba-playoff-predictor" target="_blank" rel="noreferrer" class="nav-gh">
@@ -108,6 +109,147 @@
           <article><span>3</span><h4>Train</h4><p>`pipeline/models/*` fits survival + matchup artifacts and exports diagnostics.</p></article>
           <article><span>4</span><h4>Simulate</h4><p>Current-season bracket and play-in outcomes are Monte Carlo simulated.</p></article>
           <article><span>5</span><h4>Serve</h4><p>`app/main.py` renders analytics views and an AI analyst chat layer.</p></article>
+        </div>
+      </section>
+
+      <section class="container" id="models">
+        <div class="section-head">
+          <p class="eyebrow">Model Architecture</p>
+          <h2>Five models, one end-to-end forecast</h2>
+          <p class="section-copy">All features are regular-season only — no playoff data leaks into any input. Validated with Leave-One-Year-Out backtesting across 15 seasons (2010–2024).</p>
+        </div>
+        <div class="model-grid">
+
+          <article class="model-card">
+            <div>
+              <span class="model-badge survival">Survival Analysis</span>
+              <h3>Cox Proportional Hazards</h3>
+              <p class="model-role">Predicts playoff depth — treating rounds reached as a survival time and estimating each team's hazard of early elimination.</p>
+            </div>
+            <div class="model-kpi-row">
+              <div class="model-kpi">
+                <span class="kpi-value">0.796</span>
+                <span class="kpi-label">LOYO C-index (±0.074)</span>
+              </div>
+              <div class="model-kpi">
+                <span class="kpi-value">80%</span>
+                <span class="kpi-label">Champion in top 3 (12/15 seasons)</span>
+              </div>
+              <div class="model-kpi">
+                <span class="kpi-value">100%</span>
+                <span class="kpi-label">Champion in top 5 (15/15 seasons)</span>
+              </div>
+            </div>
+            <p class="model-rationale">CoxPH treats each playoff round as a discrete survival step. A team's hazard ratio reflects how quickly the model expects it to be eliminated — high survival score = projected deeper run. This framing captures ordinal depth (R1 vs. R4 exit) that a binary classifier would collapse into a single label.</p>
+            <div class="model-features">
+              <span>Net Rating</span><span>vs-Top Win%</span><span>Close Game Win%</span><span>eFG%</span><span>FTA/g</span>
+            </div>
+          </article>
+
+          <article class="model-card">
+            <div>
+              <span class="model-badge matchup">Logistic Regression</span>
+              <h3>Series Matchup Model</h3>
+              <p class="model-role">Binary classifier — given two teams in a series, who wins? Outputs calibrated win probabilities for Monte Carlo sampling.</p>
+            </div>
+            <div class="model-kpi-row">
+              <div class="model-kpi">
+                <span class="kpi-value">72.9%</span>
+                <span class="kpi-label">LOYO series accuracy</span>
+              </div>
+              <div class="model-kpi">
+                <span class="kpi-value">0.802</span>
+                <span class="kpi-label">ROC-AUC out-of-sample</span>
+              </div>
+              <div class="model-kpi">
+                <span class="kpi-value">225</span>
+                <span class="kpi-label">Series validated</span>
+              </div>
+            </div>
+            <p class="model-rationale">Features are pairwise differentials of the same 5 RS metrics. Logistic regression keeps outputs well-calibrated, which matters when downstream Monte Carlo draws treat them as true probabilities. By-round: R1 76.7% · R2 65.0% · CF 70.0% · Finals 80.0%.</p>
+            <div class="model-features">
+              <span>Δ Net Rating</span><span>Δ vs-Top Win%</span><span>Δ Close Game Win%</span><span>Δ eFG%</span><span>Δ FTA/g</span>
+            </div>
+          </article>
+
+          <article class="model-card">
+            <div>
+              <span class="model-badge simulation">Monte Carlo</span>
+              <h3>Bracket Simulation</h3>
+              <p class="model-role">Propagates matchup win probabilities through 10,000 full bracket draws to produce title odds and round-by-round probabilities.</p>
+            </div>
+            <div class="model-kpi-row">
+              <div class="model-kpi">
+                <span class="kpi-value">10,000</span>
+                <span class="kpi-label">Full bracket simulations</span>
+              </div>
+              <div class="model-kpi">
+                <span class="kpi-value">15</span>
+                <span class="kpi-label">Series per bracket</span>
+              </div>
+              <div class="model-kpi">
+                <span class="kpi-value">4</span>
+                <span class="kpi-label">Rounds modelled</span>
+              </div>
+            </div>
+            <p class="model-rationale">At each round, outcomes are Bernoulli draws from the matchup model's win probabilities. Title probability = fraction of runs where each team wins the Finals. Path-dependence is captured naturally — a tough projected R2 matchup suppresses title odds even for a team favoured in Round 1.</p>
+            <div class="model-features">
+              <span>Matchup win probs</span><span>Bracket seeding</span><span>Play-in winners</span>
+            </div>
+          </article>
+
+          <article class="model-card">
+            <div>
+              <span class="model-badge series-len">Negative Binomial</span>
+              <h3>Series Length Model</h3>
+              <p class="model-role">Given a series win probability, derives the full distribution P(series = 4, 5, 6, or 7 games) with no additional parameters.</p>
+            </div>
+            <div class="model-kpi-row">
+              <div class="model-kpi">
+                <span class="kpi-value">4</span>
+                <span class="kpi-label">Game-count outcomes</span>
+              </div>
+              <div class="model-kpi">
+                <span class="kpi-value">Brent's</span>
+                <span class="kpi-label">Root-finding for p_game</span>
+              </div>
+              <div class="model-kpi">
+                <span class="kpi-value">0</span>
+                <span class="kpi-label">Extra free parameters</span>
+              </div>
+            </div>
+            <p class="model-rationale">Back-calculates the implied per-game win probability via numerical root-finding on the negative binomial CDF, then applies the PMF analytically. A 70% series edge implies a 4-game sweep ~14% of the time vs. a 7-game series ~30% — the app surfaces the full distribution, not just the modal outcome.</p>
+            <div class="model-features">
+              <span>p_series → p_game</span><span>P(4g) P(5g) P(6g) P(7g)</span><span>Expected games</span>
+            </div>
+          </article>
+
+          <article class="model-card">
+            <div>
+              <span class="model-badge schedule">Monte Carlo</span>
+              <h3>Remaining Schedule Simulation</h3>
+              <p class="model-role">Projects final standings for all 30 teams by simulating every remaining regular-season game with logistic win probabilities.</p>
+            </div>
+            <div class="model-kpi-row">
+              <div class="model-kpi">
+                <span class="kpi-value">5,000</span>
+                <span class="kpi-label">Simulations per run</span>
+              </div>
+              <div class="model-kpi">
+                <span class="kpi-value">30</span>
+                <span class="kpi-label">Teams projected</span>
+              </div>
+              <div class="model-kpi">
+                <span class="kpi-value">P10–P90</span>
+                <span class="kpi-label">Win range output</span>
+              </div>
+            </div>
+            <p class="model-rationale">Per-game win probability uses a calibrated logistic model on net-rating differentials with a home-court advantage parameter (HOME_ADV = 0.10 → equal-strength teams win at home 52.5%). 5,000 vectorised Bernoulli draws produce seed distributions, auto-bid probability, and play-in odds per team.</p>
+            <div class="model-features">
+              <span>Net rating differential</span><span>Home court (+0.10)</span><span>Seed distribution</span>
+            </div>
+          </article>
+
         </div>
       </section>
 
